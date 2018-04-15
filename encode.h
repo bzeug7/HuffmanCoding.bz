@@ -1,0 +1,1 @@
+int encode(char *file, char *out);
