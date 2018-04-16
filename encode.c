@@ -4,6 +4,8 @@
 #include "encode.h"
 #include "heap.h"
 
+#define BUFFER_SIZE 1024
+
 int find_int(int data[], int val, int size){
   int i;
 
@@ -17,15 +19,19 @@ int find_int(int data[], int val, int size){
 
 int get_char_data(char *file, int data[], int freq[]){
   FILE *fp = fopen(file, "r");
-  int c_int, idx, size = 0;
+  int c_int, idx, size = 0, num_read, i;
+  char buffer[BUFFER_SIZE];
 
-  while(fp && (c_int = fgetc(fp)) != EOF){
-    idx = find_int(data, c_int, size);
-    if(idx != -1){
-      freq[idx]++;
-    }else{
-      data[size] = c_int;
-      freq[size++] = 1;
+  while(fp && ((num_read = fread(buffer, sizeof(char), BUFFER_SIZE, fp)) != 0)){
+    for(i = 0; i < num_read; i++){
+      c_int = buffer[i];
+      idx = find_int(data, c_int, size);
+      if(idx != -1){
+        freq[idx]++;
+      }else{
+        data[size] = c_int;
+        freq[size++] = 1;
+    }
     }
   }
   data[size] = EOF;
@@ -47,8 +53,10 @@ int write_encodings(char *src, char *dst, Encoding *encodings, int size){
   FILE *fp_src = fopen(src, "r");
   FILE *fp_dst = fopen(dst, "w");
 
-  int c_int, i, j, shift = 0, offset = 8 * sizeof(char), max_len;
-  char buffer[512] = {0};
+  int i, j, shift = 0, offset = 8 * sizeof(char), max_len;
+  char write_buffer[BUFFER_SIZE + 100] = {0};
+  char read_buffer[BUFFER_SIZE] = {0};
+  unsigned char c_int;
 
   if(!fp_src || !fp_dst)
     return -1;
@@ -75,45 +83,97 @@ int write_encodings(char *src, char *dst, Encoding *encodings, int size){
     //fprintf(fp_dst, "%c %d %d\n", encodings[i].c, encodings[i].enc, encodings[i].len);
   }
   fputc(0, fp_dst);
-  while((c_int = fgetc(fp_src)) != EOF){
-    Encoding e = encodings[c_int];
+  int read_shift = 0, num_read;
+  while((num_read = fread(read_buffer, sizeof(char), BUFFER_SIZE, fp_src)) == BUFFER_SIZE){
+    read_shift = 0;
+    while(read_shift < num_read){
+      c_int = read_buffer[read_shift++];
+      Encoding e = encodings[(int) c_int];
+      if(offset - e.len > 0){
+        offset -= e.len;
+        write_buffer[shift] |= (e.enc << offset);
+      }else if(offset - e.len == 0){
+        write_buffer[shift++] |= e.enc;
+        if(shift > BUFFER_SIZE){
+          fwrite(write_buffer, sizeof(char), shift, fp_dst);
+          for(i = 0; i < shift; i++){
+            write_buffer[i] = 0;
+          }
+          shift = 0;
+        }
+        offset = 8 * sizeof(char);
+      }else{
+        int length = e.len;
+        while(offset - length < 0){
+          write_buffer[shift] |= e.enc >> (length - offset);
+          length = length - offset;
+          shift++;
+          offset = 8 * sizeof(char);
+        }
+        if(offset - length > 0){
+          offset -= length;
+          write_buffer[shift] |= (e.enc << offset);
+        }else if(offset - length == 0){
+          write_buffer[shift++] |= e.enc;
+          if(shift > BUFFER_SIZE){
+            fwrite(write_buffer, sizeof(char), shift, fp_dst);
+            for(i = 0; i < shift; i++){
+              write_buffer[i] = 0;
+            }
+            shift = 0;
+          }
+          offset = 8 * sizeof(char);
+        }
+      }
+    }
+  }
+  read_shift = 0;
+  read_buffer[num_read++] = 1;
+  while(read_shift < num_read){
+    c_int = read_buffer[read_shift++];
+    Encoding e = encodings[(int) c_int];
     if(offset - e.len > 0){
       offset -= e.len;
-      buffer[shift] |= (e.enc << offset);
+      write_buffer[shift] |= (e.enc << offset);
     }else if(offset - e.len == 0){
-      buffer[shift++] |= e.enc;
-      for(i = 0; i < shift; i++){
-        fputc(buffer[i], fp_dst);
-        buffer[i] = 0;
+      write_buffer[shift++] |= e.enc;
+      if(shift > BUFFER_SIZE){
+        fwrite(write_buffer, sizeof(char), shift, fp_dst);
+        for(i = 0; i < shift; i++){
+          write_buffer[i] = 0;
+        }
+        shift = 0;
       }
-      shift = 0;
       offset = 8 * sizeof(char);
     }else{
       int length = e.len;
       while(offset - length < 0){
-        buffer[shift] |= e.enc >> (length - offset);
+        write_buffer[shift] |= e.enc >> (length - offset);
         length = length - offset;
         shift++;
         offset = 8 * sizeof(char);
       }
       if(offset - length > 0){
         offset -= length;
-        buffer[shift] |= (e.enc << offset);
+        write_buffer[shift] |= (e.enc << offset);
       }else if(offset - length == 0){
-        buffer[shift++] |= e.enc;
-        for(i = 0; i < shift; i++){
-          fputc(buffer[i], fp_dst);
-          buffer[i] = 0;
+        write_buffer[shift++] |= e.enc;
+        if(shift > BUFFER_SIZE){
+          fwrite(write_buffer, sizeof(char), shift, fp_dst);
+          for(i = 0; i < shift; i++){
+            write_buffer[i] = 0;
+          }
+          shift = 0;
         }
-        shift = 0;
         offset = 8 * sizeof(char);
       }
     }
   }
-  if(offset != 8 * sizeof(char)){
-    for(i = 0; i <= shift; i++){
-      fputc(buffer[i], fp_dst);
-      buffer[i] = 0;
+  if(shift){
+    if(offset){
+      fwrite(write_buffer, sizeof(char), shift + 1, fp_dst);
+    }else{
+      fwrite(write_buffer, sizeof(char), shift, fp_dst);
     }
   }
   fclose(fp_src);

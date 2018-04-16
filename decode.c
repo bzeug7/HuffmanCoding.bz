@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -44,7 +43,7 @@ int decode(char *file, char *out){
   for(i = 0; i < ENCODING_SIZE; i++){
     Encoding e;
     c = fgetc(fp);
-    if(c != 0){
+    if(c >= i){
       e.c = c;
       e.enc = 0;
       e.len = 0;
@@ -54,7 +53,7 @@ int decode(char *file, char *out){
       for(j = (sizeof(int) * 8) >> 8; j >= 0; j--){
         e.len |= (fgetc(fp) << (j * 8));
       }
-      printf("%c %x %d\n", e.c, e.enc, e.len);
+      printf("%d %x %d\n", e.c, e.enc, e.len);
       encodings[c] = e;
       size++;
     }else{

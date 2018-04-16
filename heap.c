@@ -131,6 +131,7 @@ Encoding* get_encodings(Heap *h){
   while(idx_e++ < h->cap){
     e = get_encoding(&h->heap[0], 0, 0);
     encodings[e.c] = e;
+    //printf("Encoding: %d, %d, %d\n", e.c, e.enc, e.len);
   }
   return encodings;
 }
@@ -176,7 +177,8 @@ Node *rebuild_heap(Encoding encodings[]){
 int read_hmc(FILE *fp, Node *n, char *buff, int *offset, FILE *out){
   int c;
   if(n->isLeaf){
-    fprintf(out, "%c", n->c);
+    if(n->c != 1)
+      fprintf(out, "%c", n->c);
     return 0;
   }
   if(*offset == 0){
